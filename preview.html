@@ -237,6 +237,47 @@
             background: rgba(100, 255, 218, 0.2);
         }
 
+        /* 操作方式选择（主页）：按键 / 滑块 */
+        .select-row {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            margin: 4px 0 2px;
+        }
+        .select-row .select-label {
+            font-size: 13px;
+            color: #636e8e;
+            letter-spacing: 0.5px;
+        }
+        .ctrl-seg {
+            display: inline-flex;
+            border: 1px solid rgba(100, 255, 218, 0.2);
+            border-radius: 999px;
+            overflow: hidden;
+        }
+        .ctrl-seg-btn {
+            padding: 7px 18px;
+            font-size: 14px;
+            background: transparent;
+            color: #9fb0d0;
+            border: none;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .ctrl-seg-btn.active {
+            background: linear-gradient(135deg, #64ffda, #48d1cc);
+            color: #0d1117;
+            font-weight: 600;
+        }
+
+        /* 底部操作区：按模式切换显示 D-pad 或 浮动摇杆触控区 */
+        .bottom-controls { width: 100%; }
+        .bottom-controls.mode-buttons .dpad { display: flex; }
+        .bottom-controls.mode-buttons .joystick-zone { display: none; }
+        .bottom-controls.mode-joystick .dpad { display: none; }
+        .bottom-controls.mode-joystick .joystick-zone { display: block; }
+
         /* 浮动摇杆：底部触控区（不遮挡棋盘），手指落点即摇杆圆心 */
         .joystick-zone {
             position: relative;
@@ -462,6 +503,15 @@
                 <button class="toggle-btn active" id="powerToggle">开</button>
             </div>
 
+            <!-- 操作方式：按键 / 滑块（默认按键；屏幕滑动在所有模式都保留） -->
+            <div class="select-row">
+                <span class="select-label">操作方式</span>
+                <div class="ctrl-seg" id="controlSeg">
+                    <button class="ctrl-seg-btn active" data-ctrl="buttons">按键</button>
+                    <button class="ctrl-seg-btn" data-ctrl="joystick">滑块</button>
+                </div>
+            </div>
+
             <button class="play-btn" id="startBtn">开始游戏</button>
         </div>
 
@@ -480,11 +530,26 @@
         </div>
     </div>
 
-    <div class="joystick-zone" id="joystickZone">
-        <div id="joystick">
-            <div class="joystick-knob" id="joystickKnob"></div>
+    <div class="bottom-controls mode-buttons" id="bottomControls">
+        <!-- 按键模式：方向键（默认） -->
+        <div class="dpad" id="dpad">
+            <div class="dpad-row">
+                <button class="dpad-btn" data-dir="up">▲</button>
+            </div>
+            <div class="dpad-row">
+                <button class="dpad-btn" data-dir="left">◀</button>
+                <button class="dpad-btn" data-dir="down">▼</button>
+                <button class="dpad-btn" data-dir="right">▶</button>
+            </div>
         </div>
-        <p class="hint-text">按住底部任意位置拖动 · 落点即摇杆中心 · 也可滑动屏幕</p>
+
+        <!-- 滑块模式：浮动摇杆触控区 -->
+        <div class="joystick-zone" id="joystickZone">
+            <div id="joystick">
+                <div class="joystick-knob" id="joystickKnob"></div>
+            </div>
+            <p class="hint-text">按住底部任意位置拖动 · 落点即摇杆中心 · 也可滑动屏幕</p>
+        </div>
     </div>
 
 <script>
@@ -1159,6 +1224,8 @@
     }
 
     joyZone.addEventListener('pointerdown', function(e) {
+        // 仅在「滑块」模式且游戏进行中才激活浮动摇杆；其余情况留给屏幕滑动
+        if (controlMode !== 'joystick' || !gameRunning || gamePaused || gameOver) return;
         joyActive = true;
         if (joyZone.setPointerCapture) {
             try { joyZone.setPointerCapture(e.pointerId); } catch (_) {}
@@ -1190,6 +1257,27 @@
             }
         });
     });
+
+    // ---- 操作方式：按键 / 滑块（默认「按键」；屏幕滑动在所有模式都保留）----
+    const controlSeg = document.getElementById('controlSeg');
+    const bottomControls = document.getElementById('bottomControls');
+    let controlMode = (localStorage.getItem('snakeControlMode') || 'buttons'); // 'buttons' | 'joystick'
+
+    function applyControlMode(mode) {
+        controlMode = mode;
+        bottomControls.classList.toggle('mode-buttons', mode === 'buttons');
+        bottomControls.classList.toggle('mode-joystick', mode === 'joystick');
+        controlSeg.querySelectorAll('.ctrl-seg-btn').forEach(b => {
+            b.classList.toggle('active', b.dataset.ctrl === mode);
+        });
+        try { localStorage.setItem('snakeControlMode', mode); } catch (_) {}
+    }
+    controlSeg.querySelectorAll('.ctrl-seg-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            applyControlMode(this.dataset.ctrl);
+        });
+    });
+    applyControlMode(controlMode); // 初始化（含 localStorage 记忆）
 
     // 难度选择
     difficultySeg.querySelectorAll('.seg-btn').forEach(btn => {

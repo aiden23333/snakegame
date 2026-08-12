@@ -10,6 +10,9 @@ const { chromium } = require('playwright');
   await page.goto('http://localhost:8080/preview.html', { waitUntil: 'networkidle' });
   await page.waitForSelector('#startBtn');
 
+  // 切到「滑块」模式再测浮动摇杆（默认是按键模式，摇杆区会被隐藏）
+  await page.click('#controlSeg .ctrl-seg-btn[data-ctrl="joystick"]');
+
   // 选 easy（穿墙）模式，避免测试中撞墙误死
   await page.click('.seg-btn[data-diff="easy"]');
 

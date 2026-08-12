@@ -15,6 +15,20 @@ struct ContentView: View {
     private let joyBaseSize: CGFloat = 120
     private let joyKnobSize: CGFloat = 48
 
+    // 操作方式：按键 / 滑块（默认「按键」；屏幕滑动在所有模式都保留）。持久化记忆。
+    enum ControlMode: String, CaseIterable {
+        case buttons, joystick
+        var title: String {
+            switch self {
+            case .buttons: return "按键"
+            case .joystick: return "滑块"
+            }
+        }
+    }
+    @AppStorage("SnakeControlMode") private var controlModeRaw: String = ControlMode.buttons.rawValue
+    private var controlMode: ControlMode { ControlMode(rawValue: controlModeRaw) ?? .buttons }
+    private func setControlMode(_ m: ControlMode) { controlModeRaw = m.rawValue }
+
     var body: some View {
         ZStack {
             // 背景渐变
@@ -35,8 +49,13 @@ struct ContentView: View {
                 // 游戏画板
                 gameBoard
 
-                // 底部浮动摇杆（手指落点即圆心，位于画板下方，不遮挡主画面）
-                joystickZone
+                // 底部操作区：按键模式下显示方向键，滑块模式下显示浮动摇杆；
+                // 屏幕滑动手势在所有模式都保留（见外层 swipeGesture）
+                if controlMode == .joystick {
+                    joystickZone
+                } else {
+                    dpad
+                }
 
                 // 底部提示
                 controlHint
@@ -431,7 +450,7 @@ struct ContentView: View {
                         )
                     )
 
-                Text("滑动屏幕控制方向 · 吃食物得分")
+                Text("按键或滑块控制 · 屏幕滑动始终可用")
                     .font(.system(size: 13))
                     .foregroundColor(Color(hex: 0x8892b0))
 
@@ -479,6 +498,29 @@ struct ContentView: View {
                                           ? Color(hex: 0x64ffda)
                                           : Color(hex: 0xffb86c).opacity(0.15))
                             )
+                    }
+                }
+
+                // 操作方式：按键 / 滑块（默认按键；屏幕滑动在所有模式都保留）
+                VStack(spacing: 8) {
+                    Text("操作方式")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(Color(hex: 0x8892b0))
+                    HStack(spacing: 10) {
+                        ForEach(ControlMode.allCases, id: \.self) { m in
+                            Button(action: { setControlMode(m) }) {
+                                Text(m.title)
+                                    .font(.system(size: 15, weight: .bold))
+                                    .foregroundColor(controlMode == m ? Color(hex: 0x0d1117) : Color(hex: 0x64ffda))
+                                    .frame(width: 84, height: 40)
+                                    .background(
+                                        Capsule()
+                                            .fill(controlMode == m
+                                                  ? Color(hex: 0x64ffda)
+                                                  : Color(hex: 0x64ffda).opacity(0.08))
+                                    )
+                            }
+                        }
                     }
                 }
 
@@ -576,7 +618,9 @@ struct ContentView: View {
     // MARK: - 底部提示
 
     private var controlHint: some View {
-        Text("👆 按住底部任意位置拖动（落点即摇杆）· 也可滑动屏幕 👆")
+        Text(controlMode == .joystick
+             ? "👆 按住底部任意位置拖动（落点即摇杆）· 也可滑动屏幕 👆"
+             : "👆 使用方向键控制 · 也可滑动屏幕 👆")
             .font(.system(size: 13))
             .foregroundColor(Color(hex: 0x636e8e))
     }
@@ -686,6 +730,38 @@ struct ContentView: View {
             )
         }
         .frame(height: 170)
+    }
+
+    // 按键模式：底部方向键（默认操作方式）
+    private var dpad: some View {
+        VStack(spacing: 10) {
+            dpadButton(.up)
+            HStack(spacing: 10) {
+                dpadButton(.left)
+                dpadButton(.down)
+                dpadButton(.right)
+            }
+        }
+        .padding(.top, 8)
+    }
+
+    private func dpadButton(_ dir: Direction) -> some View {
+        Button(action: { viewModel.changeDirection(dir) }) {
+            Image(systemName: dir == .up ? "arrow.up"
+                            : dir == .down ? "arrow.down"
+                            : dir == .left ? "arrow.left" : "arrow.right")
+                .font(.system(size: 22, weight: .bold))
+                .foregroundColor(Color(hex: 0x64ffda))
+                .frame(width: 54, height: 54)
+                .background(
+                    RoundedRectangle(cornerRadius: 14)
+                        .fill(Color(hex: 0x64ffda).opacity(0.06))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14)
+                                .stroke(Color(hex: 0x64ffda).opacity(0.15), lineWidth: 1)
+                        )
+                )
+        }
     }
 
 }
