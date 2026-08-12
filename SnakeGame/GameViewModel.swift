@@ -43,10 +43,11 @@ final class GameViewModel: ObservableObject {
     /// 当前速度状态（用于界面徽标）
     @Published var speedState: SpeedState = .normal
 
-    /// 最高分（持久化到 UserDefaults）
-    @Published var highScore: Int {
-        didSet { UserDefaults.standard.set(highScore, forKey: "SnakeHighScore") }
-    }
+    /// 当前模式（难度 + 是否道具）的最高分，仅用于界面展示
+    @Published var highScore: Int = 0
+
+    /// 各模式最高分字典：key 为 "\(难度rawValue)_\(道具1/0)"，持久化到 UserDefaults
+    private var bestScores: [String: Int] = [:]
 
     // MARK: - 私有属性
 
@@ -72,8 +73,9 @@ final class GameViewModel: ObservableObject {
     // MARK: - 初始化
 
     init() {
-        highScore = UserDefaults.standard.integer(forKey: "SnakeHighScore")
+        loadBestScores()
         resetGame()
+        refreshHighScore()
     }
 
     // MARK: - 游戏控制
@@ -137,10 +139,52 @@ final class GameViewModel: ObservableObject {
         if gameState == .ready {
             obstacles = (d == .hard) ? Self.generateObstacles() : []
         }
+        refreshHighScore()
     }
 
     func setPowerUpMode(_ on: Bool) {
         powerUpMode = on
+        refreshHighScore()
+    }
+
+    // MARK: - 各模式最高分（分别记录，不共用）
+
+    /// 当前模式的唯一 key：难度 + 是否开启道具
+    private func modeKey() -> String {
+        "\(difficulty.rawValue)_\(powerUpMode ? 1 : 0)"
+    }
+
+    /// 根据当前模式刷新展示用最高分
+    private func refreshHighScore() {
+        highScore = bestScores[modeKey()] ?? 0
+    }
+
+    /// 从 UserDefaults 载入各模式最高分（并迁移旧版全局最高分）
+    private func loadBestScores() {
+        if let dict = UserDefaults.standard.dictionary(forKey: "SnakeBestScores") as? [String: Int] {
+            bestScores = dict
+        }
+        if bestScores.isEmpty {
+            let legacy = UserDefaults.standard.integer(forKey: "SnakeHighScore")
+            if legacy > 0 {
+                bestScores[modeKey()] = legacy
+            }
+        }
+    }
+
+    /// 持久化各模式最高分
+    private func saveBestScores() {
+        UserDefaults.standard.set(bestScores, forKey: "SnakeBestScores")
+    }
+
+    /// 若当前得分超过本模式记录则更新并保存
+    private func recordBestIfNeeded() {
+        let key = modeKey()
+        if score > (bestScores[key] ?? 0) {
+            bestScores[key] = score
+            highScore = score
+            saveBestScores()
+        }
     }
 
     // MARK: - 方向控制
@@ -266,7 +310,7 @@ final class GameViewModel: ObservableObject {
             lastEatTime = now
 
             score += 10 * combo
-            if score > highScore { highScore = score }
+            recordBestIfNeeded()
 
             spawnParticles(at: newHead, color: 0x64ffda, count: 6)
             baseInterval = max(0.06, baseInterval - 0.003)
@@ -327,7 +371,7 @@ final class GameViewModel: ObservableObject {
         switch type {
         case .gold:
             score += 50
-            if score > highScore { highScore = score }
+            recordBestIfNeeded()
             spawnParticles(at: point, color: type.color, count: 12)
         case .fire:
             speedBoostUntil = now + effectDuration

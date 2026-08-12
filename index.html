@@ -449,7 +449,7 @@
     let nextDirection = { x: 1, y: 0 };
     let food = { x: 0, y: 0 };
     let score = 0;
-    let highScore = parseInt(localStorage.getItem('snakeHighScore') || '0');
+    let highScore = 0; // 当前模式最高分，真实取值在下方按模式计算
     let gameRunning = false;
     let gamePaused = false;
     let gameOver = false;
@@ -492,6 +492,33 @@
     let speedState = 'normal';          // 'normal' | 'fast' | 'slow'
     let ghostActive = false;
     let prevSnake = [];            // 上一 tick 蛇的位置（平滑插值用）
+
+    // 各模式最高分：按「难度 + 是否道具」分别记录，从 localStorage 读取
+    let bestScores = JSON.parse(localStorage.getItem('snakeBestScores') || '{}');
+    function modeKey() { return difficulty + '_' + (powerUpMode ? 1 : 0); }
+    // 兼容旧版：若没有任何分模式记录、但有旧全局最高分，迁移到当前模式
+    if (Object.keys(bestScores).length === 0) {
+        const legacy = parseInt(localStorage.getItem('snakeHighScore') || '0');
+        if (legacy > 0) bestScores[modeKey()] = legacy;
+    }
+    highScore = bestScores[modeKey()] || 0;
+    function refreshHighScore() {
+        highScore = bestScores[modeKey()] || 0;
+        highScoreEl.textContent = highScore;
+    }
+    function saveBestScores() {
+        localStorage.setItem('snakeBestScores', JSON.stringify(bestScores));
+    }
+    // 更新分数：若超过本模式记录则分别保存
+    function updateBestIfNeeded() {
+        const k = modeKey();
+        if (score > (bestScores[k] || 0)) {
+            bestScores[k] = score;
+            highScore = score;
+            highScoreEl.textContent = highScore;
+            saveBestScores();
+        }
+    }
 
     // DOM elements
     const scoreEl = document.getElementById('score');
@@ -569,11 +596,7 @@
 
     function updateScore() {
         scoreEl.textContent = score;
-        if (score > highScore) {
-            highScore = score;
-            highScoreEl.textContent = highScore;
-            localStorage.setItem('snakeHighScore', highScore.toString());
-        }
+        updateBestIfNeeded();
     }
 
     // ---- Game loop ----
@@ -1038,6 +1061,7 @@
             difficulty = this.dataset.diff;
             difficultySeg.querySelectorAll('.seg-btn').forEach(b => b.classList.remove('active'));
             this.classList.add('active');
+            refreshHighScore();
         });
     });
 
@@ -1046,6 +1070,7 @@
         powerUpMode = !powerUpMode;
         powerToggle.classList.toggle('active', powerUpMode);
         powerToggle.textContent = powerUpMode ? '开' : '关';
+        refreshHighScore();
     });
 
     // ---- Game control ----
@@ -1101,6 +1126,8 @@
             return {
                 score,
                 highScore,
+                bestScores: { ...bestScores },
+                mode: modeKey(),
                 gameState: gameOver ? 'gameOver' : (gameRunning ? (gamePaused ? 'paused' : 'playing') : 'ready'),
                 direction: { ...direction },
                 snake: snake.map(s => ({ x: s.x, y: s.y })),
