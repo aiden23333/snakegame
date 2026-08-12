@@ -1115,7 +1115,7 @@
     let joyCx = 0, joyCy = 0;        // 当前摇杆圆心（视口坐标）
     const JOY_R = 60;                // 底座半径(px)
     const JOY_KNOB = 26;             // 旋钮半径(px)
-    const JOY_DEAD = 16;             // 中心死区半径(px)
+    const JOY_DEAD = 8;              // 中心死区半径(px)，值越小越灵敏
 
     // 在落点显示摇杆，并把圆心限制在底部触控区内（确保底座不越界、不遮挡棋盘）
     function joyShowAt(x, y) {
