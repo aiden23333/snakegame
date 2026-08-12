@@ -671,7 +671,7 @@ struct ContentView: View {
                         }
                         joyOffset = CGSize(width: dx, height: dy)
                         // 中心死区：保持当前方向（值越小越灵敏）
-                        guard dist > 7 else { return }
+                        guard dist > 4 else { return }
                         // 按主轴向映射为 4 方向
                         if abs(dx) >= abs(dy) {
                             viewModel.changeDirection(dx > 0 ? .right : .left)
