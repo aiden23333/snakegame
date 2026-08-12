@@ -28,13 +28,13 @@ SnakeGame/
 
 > 首次打开如提示 "Trust" 开发者，选择 Trust 即可。
 
-### 方式二：用 XcodeGen 重新生成工程（可选）
+### 方式二：用 XcodeGen 生成工程（推荐，仓库未提交 .xcodeproj）
 
-如果你安装了 [XcodeGen](https://github.com/yonaskolb/XcodeGen)：
+仓库只提交 `project.yml`，**不提交** `.xcodeproj`（它绑定本机路径，无法直接跨机器使用）。安装 [XcodeGen](https://github.com/yonaskolb/XcodeGen) 后从配置重新生成：
 
 ```bash
-cd SnakeGame
-xcodegen generate
+brew install xcodegen        # 只需一次
+xcodegen generate            # 读取仓库根目录 project.yml，生成 SnakeGame.xcodeproj
 open SnakeGame.xcodeproj
 ```
 
@@ -122,4 +122,72 @@ iPhone 用 Safari 打开 → 分享 → 添加到主屏幕即可。二维码见 
 
 ### 验证
 `tests/pwa_check.cjs`（Playwright + 本机 Chrome）已通过：清单合法、`display=standalone`、三张图标可访问、Service Worker 注册成功、页面无控制台报错。
+
+## 在另一台电脑上克隆、修改与重新部署
+
+本仓库同时包含**网页版（PWA）**与**原生 iOS 工程**两份代码，clone 后即可在任意电脑继续改。
+
+### 1. 克隆
+
+```bash
+git clone https://github.com/aiden23333/snakegame.git
+cd snakegame
+```
+
+### 2. 仓库实际结构（注意：与本地开发目录略有不同）
+
+```
+snakegame/                  # 仓库根
+├── index.html              # GitHub Pages 入口（= preview.html，内容一致）
+├── preview.html            # 网页试玩版（单文件，含全部 CSS/JS）
+├── manifest.webmanifest    # PWA 清单
+├── sw.js                   # 离线 Service Worker
+├── apple-touch-icon.png / icon-192.png / icon-512.png / favicon.ico
+├── install_qr.png
+├── project.yml             # XcodeGen 配置（用于重新生成 Xcode 工程）
+├── SnakeGame/              # 原生 Swift 源码（见上「项目结构」）
+└── tests/                  # Playwright 自动化测试
+```
+
+> 仓库**不提交** `.xcodeproj`（它依赖本机路径，且可由 `project.yml` 重新生成）。拿到仓库后用 XcodeGen 生成即可，见下。
+
+### 3. 改网页版（preview.html）
+
+直接编辑 `preview.html`（或 `index.html`，二者需保持一致）。本地预览：
+
+```bash
+python3 -m http.server 8080     # 然后浏览器打开 http://localhost:8080
+```
+
+### 4. 改原生 iOS 工程（Swift/SwiftUI）
+
+```bash
+brew install xcodegen            # 只需一次
+xcodegen generate                # 读取仓库根目录 project.yml，生成 SnakeGame.xcodeproj
+open SnakeGame.xcodeproj
+```
+
+- 源码都在 `SnakeGame/` 目录下，直接改 `.swift` 文件。
+- 资源（图标等）在 `SnakeGame/Assets.xcassets/`。
+- 编译运行：`Cmd + R`（选模拟器或真机）。
+- 真机运行需用自己的 Apple ID 签名：Xcode → Signing & Capabilities → Team 选自己的账号。
+
+### 5. 重新部署 / 推送到 GitHub Pages
+
+无论改了网页还是源码，统一流程：
+
+```bash
+git add -A
+git commit -m "你的改动说明"
+git push origin main
+```
+
+推送后 GitHub Pages 会自动重新构建并上线到 `https://aiden23333.github.io/snakegame/`（通常 1 分钟内生效）。
+可在仓库 **Settings → Pages** 查看构建状态。
+
+### 6. 常见坑
+
+- 网页版改了 `preview.html` **一定要同步 `index.html`**，否则本地预览和线上不一致（本仓库提交时 `preview.html` 会被同步覆盖到 `index.html`）。
+- iOS 工程**不要手动提交 `.xcodeproj`**；改 `project.yml` 后重新 `xcodegen generate` 即可。
+- "添加到主屏幕"必须用 **Safari**，Chrome / 微信内置浏览器不支持。
 
