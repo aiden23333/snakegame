@@ -237,39 +237,52 @@
             background: rgba(100, 255, 218, 0.2);
         }
 
-        /* 底部 360° 摇杆（不遮挡主画面，位于画布下方独立区域） */
+        /* 浮动摇杆：底部触控区（不遮挡棋盘），手指落点即摇杆圆心 */
         .joystick-zone {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            margin-top: 2px;
-            padding: 4px 0 16px;
+            position: relative;
+            width: 100%;
+            height: 170px;
+            margin-top: 4px;
             touch-action: none;
         }
+        .joystick-zone .hint-text {
+            position: absolute;
+            left: 0; right: 0; bottom: 4px;
+            text-align: center;
+            font-size: 12px;
+            color: rgba(99, 110, 142, 0.9);
+            pointer-events: none;
+            display: block;
+        }
 
-        .joystick {
-            position: relative;
+        /* 浮动摇杆本体：默认隐藏，手指按下时出现在落点并跟随，松手即消失 */
+        #joystick {
+            position: fixed;
             width: 120px;
             height: 120px;
             border-radius: 50%;
+            transform: translate(-50%, -50%);   /* 以圆心定位在落点 */
             background: radial-gradient(circle at 50% 45%, rgba(100, 255, 218, 0.12), rgba(100, 255, 218, 0.03));
             border: 1px solid rgba(100, 255, 218, 0.25);
             box-shadow: inset 0 0 26px rgba(0, 0, 0, 0.45);
             touch-action: none;
+            display: none;            /* 未按下时隐藏，避免遮挡 */
+            pointer-events: none;     /* 由底部触控区统一捕获指针 */
+            z-index: 60;
         }
 
         /* 中心十字参考线 */
-        .joystick::before,
-        .joystick::after {
+        #joystick::before,
+        #joystick::after {
             content: "";
             position: absolute;
             background: rgba(100, 255, 218, 0.12);
         }
-        .joystick::before {
+        #joystick::before {
             left: 50%; top: 14%; bottom: 14%;
             width: 1px; transform: translateX(-0.5px);
         }
-        .joystick::after {
+        #joystick::after {
             top: 50%; left: 14%; right: 14%;
             height: 1px; transform: translateY(-0.5px);
         }
@@ -467,11 +480,11 @@
         </div>
     </div>
 
-    <div class="joystick-zone">
-        <div class="joystick" id="joystick">
+    <div class="joystick-zone" id="joystickZone">
+        <div id="joystick">
             <div class="joystick-knob" id="joystickKnob"></div>
         </div>
-        <p class="hint-text">拖动摇杆 360° 控制方向 · 也可滑动屏幕</p>
+        <p class="hint-text">按住底部任意位置拖动 · 落点即摇杆中心 · 也可滑动屏幕</p>
     </div>
 
 <script>
@@ -1025,7 +1038,7 @@
     let touchInJoystick = false;
 
     function onTouchStart(e) {
-        touchInJoystick = !!(e.target.closest && e.target.closest('.joystick'));
+        touchInJoystick = !!(e.target.closest && e.target.closest('.joystick-zone'));
         if (touchInJoystick) return;
         if (!gameRunning || gamePaused || gameOver) return;
         const t = e.touches[0];
@@ -1094,20 +1107,34 @@
         nextDirection = { x, y };
     }
 
-    // ---- 底部 360° 摇杆（拖动旋钮 → 按主轴向映射为上下左右）----
+    // ---- 浮动摇杆（手指落点即圆心，整体跟随手指；仅在底部触控区，不遮挡棋盘）----
+    const joyZone = document.getElementById('joystickZone');
     const joystick = document.getElementById('joystick');
     const joyKnob = document.getElementById('joystickKnob');
     let joyActive = false;
-    const JOY_DEAD = 16; // 中心死区半径(px)
+    let joyCx = 0, joyCy = 0;        // 当前摇杆圆心（视口坐标）
+    const JOY_R = 60;                // 底座半径(px)
+    const JOY_KNOB = 26;             // 旋钮半径(px)
+    const JOY_DEAD = 16;             // 中心死区半径(px)
 
-    function joyUpdate(clientX, clientY) {
-        const rect = joystick.getBoundingClientRect();
-        const cx = rect.left + rect.width / 2;
-        const cy = rect.top + rect.height / 2;
-        let dx = clientX - cx;
-        let dy = clientY - cy;
-        const maxOff = rect.width / 2 - 26; // 旋钮半径 26
+    // 在落点显示摇杆，并把圆心限制在底部触控区内（确保底座不越界、不遮挡棋盘）
+    function joyShowAt(x, y) {
+        const zr = joyZone.getBoundingClientRect();
+        const minX = zr.left + JOY_R, maxX = zr.right - JOY_R;
+        const minY = zr.top + JOY_R, maxY = zr.bottom - JOY_R;
+        joyCx = Math.max(minX, Math.min(maxX, x));
+        joyCy = Math.max(minY, Math.min(maxY, y));
+        joystick.style.left = joyCx + 'px';
+        joystick.style.top = joyCy + 'px';
+        joystick.style.display = 'block';
+    }
+
+    // 手指相对圆心滑动 → 旋钮跟随 + 判定 4 方向
+    function joyMove(clientX, clientY) {
+        let dx = clientX - joyCx;
+        let dy = clientY - joyCy;
         const dist = Math.hypot(dx, dy);
+        const maxOff = JOY_R - JOY_KNOB;
         if (dist > maxOff && dist > 0) {
             dx = dx / dist * maxOff;
             dy = dy / dist * maxOff;
@@ -1127,31 +1154,29 @@
 
     function joyEnd() {
         joyActive = false;
+        joystick.style.display = 'none';
         joyKnob.style.transform = 'translate(0px,0px)';
     }
 
-    joystick.addEventListener('pointerdown', function(e) {
+    joyZone.addEventListener('pointerdown', function(e) {
         joyActive = true;
-        if (joystick.setPointerCapture) {
-            try { joystick.setPointerCapture(e.pointerId); } catch (_) {}
+        if (joyZone.setPointerCapture) {
+            try { joyZone.setPointerCapture(e.pointerId); } catch (_) {}
         }
-        joyUpdate(e.clientX, e.clientY);
+        joyShowAt(e.clientX, e.clientY);
+        joyMove(e.clientX, e.clientY);
         e.preventDefault();
         e.stopPropagation();
     });
-    joystick.addEventListener('pointermove', function(e) {
+    joyZone.addEventListener('pointermove', function(e) {
         if (!joyActive) return;
-        joyUpdate(e.clientX, e.clientY);
+        joyMove(e.clientX, e.clientY);
         e.preventDefault();
         e.stopPropagation();
     });
-    joystick.addEventListener('pointerup', function(e) {
-        joyEnd();
-        e.stopPropagation();
-    });
-    joystick.addEventListener('pointercancel', function() { joyEnd(); });
-    // 指针离开（如移到元素外未收到 up）也复位
-    joystick.addEventListener('pointerleave', function() { if (joyActive) joyEnd(); });
+    function joyPointerEnd() { if (joyActive) joyEnd(); }
+    joyZone.addEventListener('pointerup', joyPointerEnd);
+    joyZone.addEventListener('pointercancel', joyPointerEnd);
 
     // D-pad buttons
     document.querySelectorAll('.dpad-btn').forEach(btn => {

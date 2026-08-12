@@ -11,6 +11,7 @@ struct ContentView: View {
 
     // 底部摇杆旋钮的偏移量
     @State private var joyOffset: CGSize = .zero
+    @State private var joyCenter: CGPoint? = nil   // 手指落点（触控区本地坐标）即摇杆圆心
     private let joyBaseSize: CGFloat = 120
     private let joyKnobSize: CGFloat = 48
 
@@ -34,8 +35,8 @@ struct ContentView: View {
                 // 游戏画板
                 gameBoard
 
-                // 底部 360° 摇杆（位于画板下方，不遮挡主画面）
-                joystick
+                // 底部浮动摇杆（手指落点即圆心，位于画板下方，不遮挡主画面）
+                joystickZone
 
                 // 底部提示
                 controlHint
@@ -575,16 +576,16 @@ struct ContentView: View {
     // MARK: - 底部提示
 
     private var controlHint: some View {
-        Text("拖动摇杆 360° 控制方向 · 也可滑动屏幕")
+        Text("👆 按住底部任意位置拖动（落点即摇杆）· 也可滑动屏幕 👆")
             .font(.system(size: 13))
             .foregroundColor(Color(hex: 0x636e8e))
     }
 
     // MARK: - 底部 360° 摇杆
 
-    private var joystick: some View {
+    // 浮动摇杆底座（静态外观）
+    private var joyBaseShape: some View {
         ZStack {
-            // 底座
             Circle()
                 .fill(
                     RadialGradient(
@@ -598,11 +599,7 @@ struct ContentView: View {
                     )
                 )
                 .frame(width: joyBaseSize, height: joyBaseSize)
-                .overlay(
-                    Circle()
-                        .stroke(Color(hex: 0x64ffda).opacity(0.25), lineWidth: 1)
-                )
-
+                .overlay(Circle().stroke(Color(hex: 0x64ffda).opacity(0.25), lineWidth: 1))
             // 中心十字参考线
             VStack(spacing: 0) {
                 Spacer()
@@ -618,48 +615,77 @@ struct ContentView: View {
                     .frame(width: joyBaseSize * 0.72, height: 1)
                 Spacer()
             }
-
-            // 旋钮（随拖动偏移）
-            Circle()
-                .fill(
-                    LinearGradient(
-                        colors: [Color(hex: 0x64ffda), Color(hex: 0x48d1cc)],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                )
-                .frame(width: joyKnobSize, height: joyKnobSize)
-                .shadow(color: Color(hex: 0x64ffda).opacity(0.4), radius: 8)
-                .offset(joyOffset)
         }
         .frame(width: joyBaseSize, height: joyBaseSize)
-        .contentShape(Circle())
-        .highPriorityGesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { value in
-                    let center = CGPoint(x: joyBaseSize / 2, y: joyBaseSize / 2)
-                    var dx = value.location.x - center.x
-                    var dy = value.location.y - center.y
-                    let dist = hypot(dx, dy)
-                    let maxOff = joyBaseSize / 2 - joyKnobSize / 2
-                    if dist > maxOff && dist > 0 {
-                        dx = dx / dist * maxOff
-                        dy = dy / dist * maxOff
-                    }
-                    joyOffset = CGSize(width: dx, height: dy)
-                    // 中心死区：保持当前方向
-                    guard dist > 14 else { return }
-                    // 按主轴向映射为 4 方向
-                    if abs(dx) >= abs(dy) {
-                        viewModel.changeDirection(dx > 0 ? .right : .left)
-                    } else {
-                        viewModel.changeDirection(dy > 0 ? .down : .up)
-                    }
+    }
+
+    // 浮动摇杆旋钮
+    private var joyKnobShape: some View {
+        Circle()
+            .fill(
+                LinearGradient(
+                    colors: [Color(hex: 0x64ffda), Color(hex: 0x48d1cc)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
+            .frame(width: joyKnobSize, height: joyKnobSize)
+            .shadow(color: Color(hex: 0x64ffda).opacity(0.4), radius: 8)
+    }
+
+    // 底部触控区：手指落点即摇杆圆心，旋钮跟随手指；底座限制在区内不遮挡棋盘
+    private var joystickZone: some View {
+        GeometryReader { geo in
+            ZStack {
+                if let c = joyCenter {
+                    joyBaseShape
+                        .position(c)
+                        .allowsHitTesting(false)
+                    joyKnobShape
+                        .position(x: c.x + joyOffset.width, y: c.y + joyOffset.height)
+                        .allowsHitTesting(false)
                 }
-                .onEnded { _ in
-                    joyOffset = .zero
-                }
-        )
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .highPriorityGesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        // 第一次落点设为圆心，并限制在触控区内（不越界、不遮挡棋盘）
+                        if joyCenter == nil {
+                            let r = joyBaseSize / 2
+                            let w = geo.size.width
+                            let h = geo.size.height
+                            let x = min(max(value.startLocation.x, r), max(w - r, r))
+                            let y = min(max(value.startLocation.y, r), max(h - r, r))
+                            joyCenter = CGPoint(x: x, y: y)
+                        }
+                        guard joyCenter != nil else { return }
+                        var dx = value.translation.width
+                        var dy = value.translation.height
+                        let dist = hypot(dx, dy)
+                        let maxOff = (joyBaseSize - joyKnobSize) / 2
+                        if dist > maxOff && dist > 0 {
+                            dx = dx / dist * maxOff
+                            dy = dy / dist * maxOff
+                        }
+                        joyOffset = CGSize(width: dx, height: dy)
+                        // 中心死区：保持当前方向
+                        guard dist > 14 else { return }
+                        // 按主轴向映射为 4 方向
+                        if abs(dx) >= abs(dy) {
+                            viewModel.changeDirection(dx > 0 ? .right : .left)
+                        } else {
+                            viewModel.changeDirection(dy > 0 ? .down : .up)
+                        }
+                    }
+                    .onEnded { _ in
+                        joyCenter = nil
+                        joyOffset = .zero
+                    }
+            )
+        }
+        .frame(height: 170)
     }
 
 }
