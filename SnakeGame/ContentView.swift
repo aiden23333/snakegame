@@ -394,7 +394,9 @@ struct ContentView: View {
                 titleGradient: [Color(hex: 0xff6b6b), Color(hex: 0xffb86c)],
                 subtitle: "得分  \(viewModel.score)",
                 buttonTitle: "再来一局",
-                action: { viewModel.startGame() }
+                action: { viewModel.startGame() },
+                secondaryButtonTitle: "选择模式",
+                secondaryAction: { viewModel.resetGame() }
             )
         case .playing:
             EmptyView()
@@ -500,7 +502,9 @@ struct ContentView: View {
         titleGradient: [Color],
         subtitle: String,
         buttonTitle: String,
-        action: @escaping () -> Void
+        action: @escaping () -> Void,
+        secondaryButtonTitle: String? = nil,
+        secondaryAction: (() -> Void)? = nil
     ) -> some View {
         ZStack {
             RoundedRectangle(cornerRadius: 20)
@@ -541,6 +545,21 @@ struct ContentView: View {
                         .shadow(color: Color(hex: 0x64ffda).opacity(0.3), radius: 10)
                 }
                 .padding(.top, 8)
+
+                if let secondaryButtonTitle, let secondaryAction {
+                    Button(action: secondaryAction) {
+                        Text(secondaryButtonTitle)
+                            .font(.system(size: 15, weight: .bold, design: .rounded))
+                            .foregroundColor(Color(hex: 0x64ffda))
+                            .padding(.horizontal, 32)
+                            .padding(.vertical, 11)
+                            .background(
+                                Capsule()
+                                    .stroke(Color(hex: 0x64ffda).opacity(0.5), lineWidth: 1.5)
+                            )
+                    }
+                    .padding(.top, 4)
+                }
             }
         }
     }

@@ -170,6 +170,21 @@
             box-shadow: 0 4px 15px rgba(100, 255, 218, 0.2);
         }
 
+        .play-btn.secondary {
+            background: transparent;
+            color: #64ffda;
+            border: 1px solid rgba(100, 255, 218, 0.5);
+            box-shadow: none;
+            font-size: 16px;
+            padding: 12px 44px;
+            margin-top: 10px;
+        }
+
+        .play-btn.secondary:active {
+            transform: scale(0.95);
+            background: rgba(100, 255, 218, 0.1);
+        }
+
         /* Controls hint */
         .controls-hint {
             width: 100%;
@@ -390,6 +405,7 @@
             <div class="overlay-title" style="background:linear-gradient(135deg,#ff6b6b,#ffb86c);-webkit-background-clip:text;-webkit-text-fill-color:transparent;">游戏结束</div>
             <div class="overlay-score">得分 <span id="finalScore">0</span></div>
             <button class="play-btn" id="restartBtn">再来一局</button>
+            <button class="play-btn secondary" id="modeBtn">选择模式</button>
         </div>
 
         <!-- Pause overlay -->
@@ -486,6 +502,7 @@
     const pauseOverlay = document.getElementById('pauseOverlay');
     const startBtn = document.getElementById('startBtn');
     const restartBtn = document.getElementById('restartBtn');
+    const modeBtn = document.getElementById('modeBtn');
     const pauseBtn = document.getElementById('pauseBtn');
     const resumeBtn = document.getElementById('resumeBtn');
     const canvasWrap = document.getElementById('canvasWrap');
@@ -1057,8 +1074,19 @@
         }
     }
 
+    function chooseMode() {
+        gameRunning = false;
+        gameOver = false;
+        gamePaused = false;
+        if (animationId) cancelAnimationFrame(animationId);
+        gameOverOverlay.classList.add('hidden');
+        startOverlay.classList.remove('hidden');
+        pauseBtn.style.visibility = 'hidden';
+    }
+
     startBtn.addEventListener('click', startGame);
     restartBtn.addEventListener('click', startGame);
+    modeBtn.addEventListener('click', chooseMode);
     pauseBtn.addEventListener('click', togglePause);
     resumeBtn.addEventListener('click', togglePause);
 
