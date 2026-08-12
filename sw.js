@@ -1,7 +1,7 @@
 // Minimal offline service worker for the Snake PWA.
 const CACHE = 'snake-v1';
 const ASSETS = [
-  'index.html',
+  'preview.html',
   'apple-touch-icon.png',
   'icon-192.png',
   'icon-512.png',

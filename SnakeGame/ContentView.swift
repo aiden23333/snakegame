@@ -19,9 +19,12 @@ struct ContentView: View {
             )
             .ignoresSafeArea()
 
-            VStack(spacing: 16) {
+            VStack(spacing: 12) {
                 // 顶栏：得分 + 最高分
                 topBar
+
+                // 状态徽标（连击 / 生效中的道具）
+                statusRow
 
                 // 游戏画板
                 gameBoard
@@ -90,6 +93,46 @@ struct ContentView: View {
         .padding(.top, 8)
     }
 
+    // MARK: - 状态徽标（连击 / 道具效果）
+
+    @ViewBuilder
+    private var statusRow: some View {
+        if viewModel.gameState == .playing {
+            HStack(spacing: 8) {
+                if viewModel.combo >= 2 {
+                    Text("连击 x\(viewModel.combo)")
+                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                        .foregroundColor(Color(hex: 0xffb86c))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(Capsule().fill(Color(hex: 0xffb86c).opacity(0.15)))
+                }
+                if viewModel.speedState == .fast {
+                    badge("🔥 加速", color: 0xff6b35)
+                }
+                if viewModel.speedState == .slow {
+                    badge("🐢 减速", color: 0x4ade80)
+                }
+                if viewModel.ghostActive {
+                    badge("👻 幽灵", color: 0xa78bfa)
+                }
+                Spacer(minLength: 0)
+            }
+            .frame(height: 22)
+        } else {
+            EmptyView()
+        }
+    }
+
+    private func badge(_ text: String, color: UInt32) -> some View {
+        Text(text)
+            .font(.system(size: 12, weight: .bold))
+            .foregroundColor(Color(hex: color))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .background(Capsule().fill(Color(hex: color).opacity(0.15)))
+    }
+
     // MARK: - 游戏画板
 
     private var gameBoard: some View {
@@ -103,13 +146,18 @@ struct ContentView: View {
                     .fill(Color(hex: 0x0d1117))
                     .shadow(color: .black.opacity(0.5), radius: 20, x: 0, y: 10)
 
-                // 蛇和食物
-                Canvas { context, _ in
-                    drawGrid(context: context, cell: cell, size: size)
-                    drawFood(context: context, cell: cell)
-                    drawSnake(context: context, cell: cell)
+                // 蛇、食物、障碍、道具、粒子
+                TimelineView(AnimationTimelineSchedule(minimumInterval: 1.0/60.0)) { _ in
+                    Canvas { context, _ in
+                        drawGrid(context: context, cell: cell, size: size)
+                        drawObstacles(context: context, cell: cell)
+                        drawFood(context: context, cell: cell)
+                        drawPowerUp(context: context, cell: cell)
+                        drawSnake(context: context, cell: cell)
+                        drawParticles(context: context, cell: cell)
+                    }
+                    .frame(width: size, height: size)
                 }
-                .frame(width: size, height: size)
 
                 // 状态遮罩
                 overlayView
@@ -166,6 +214,21 @@ struct ContentView: View {
         context.stroke(path, with: .color(Color(hex: 0x64ffda).opacity(0.03)), lineWidth: 0.5)
     }
 
+    private func drawObstacles(context: GraphicsContext, cell: CGFloat) {
+        for obs in viewModel.obstacles {
+            let rect = CGRect(
+                x: CGFloat(obs.x) * cell + cell * 0.06,
+                y: CGFloat(obs.y) * cell + cell * 0.06,
+                width: cell * 0.88,
+                height: cell * 0.88
+            )
+            context.fill(
+                Path(roundedRect: rect, cornerRadius: cell * 0.2),
+                with: .color(Color(hex: 0x2b2f44))
+            )
+        }
+    }
+
     private func drawFood(context: GraphicsContext, cell: CGFloat) {
         // SwiftUI Canvas 闭包中的 context 是 let 常量，需先创建可变副本再修改 opacity
         var context = context
@@ -189,16 +252,60 @@ struct ContentView: View {
         )
     }
 
+    private func drawPowerUp(context: GraphicsContext, cell: CGFloat) {
+        guard let pu = viewModel.powerUp else { return }
+        // SwiftUI Canvas 闭包中的 context 是 let 常量
+        var context = context
+        let px = CGFloat(pu.position.x) * cell + cell / 2
+        let py = CGFloat(pu.position.y) * cell + cell / 2
+
+        let glowRect = CGRect(x: px - cell, y: py - cell, width: cell * 2, height: cell * 2)
+        context.opacity = 0.35
+        context.fill(Path(ellipseIn: glowRect), with: .color(Color(hex: pu.type.color)))
+        context.opacity = 1.0
+
+        let r = cell * 0.36
+        context.fill(
+            Path(ellipseIn: CGRect(x: px - r, y: py - r, width: r * 2, height: r * 2)),
+            with: .color(Color(hex: pu.type.color))
+        )
+
+        // emoji 图标居中
+        context.draw(
+            Text(pu.type.emoji).font(.system(size: cell * 0.5)),
+            at: CGPoint(x: px, y: py),
+            anchor: .center
+        )
+    }
+
     private func drawSnake(context: GraphicsContext, cell: CGFloat) {
         let pad = cell * 0.08
         let radius = cell * 0.25
+        let t = viewModel.interpolationFactor()
+        let n = viewModel.snake.count
+        guard n > 0 else { return }
+
+        // 插值后的每段中心（格坐标为单位）：在 prev→cur 之间平滑滑动
+        var ix = [CGFloat](repeating: 0, count: n)
+        var iy = [CGFloat](repeating: 0, count: n)
+        for i in 0..<n {
+            let cur = viewModel.snake[i]
+            let prev = (i < viewModel.prevSnake.count) ? viewModel.prevSnake[i] : cur
+            var dx = cur.x - prev.x
+            var dy = cur.y - prev.y
+            if abs(dx) > 1 { dx = 0 }  // 穿墙瞬间吸附，避免跨屏滑动
+            if abs(dy) > 1 { dy = 0 }
+            ix[i] = CGFloat(prev.x) + CGFloat(dx) * t
+            iy[i] = CGFloat(prev.y) + CGFloat(dy) * t
+        }
 
         // 从尾到头绘制
-        for i in (0..<viewModel.snake.count).reversed() {
-            let seg = viewModel.snake[i]
+        for i in (0..<n).reversed() {
+            let cx = ix[i] * cell
+            let cy = iy[i] * cell
             let rect = CGRect(
-                x: CGFloat(seg.x) * cell + pad,
-                y: CGFloat(seg.y) * cell + pad,
+                x: cx + pad,
+                y: cy + pad,
                 width: cell - pad * 2,
                 height: cell - pad * 2
             )
@@ -206,24 +313,38 @@ struct ContentView: View {
 
             if i == 0 {
                 // 蛇头
-                context.fill(path, with: .color(Color(hex: 0x64ffda)))
-                drawEyes(context: context, head: seg, cell: cell, dir: viewModel.direction)
+                let headColor: Color = viewModel.ghostActive ? Color(hex: 0xa78bfa) : Color(hex: 0x64ffda)
+                context.fill(path, with: .color(headColor))
+                let center = CGPoint(x: cx + cell / 2, y: cy + cell / 2)
+                drawEyes(context: context, center: center, cell: cell, dir: viewModel.direction)
             } else {
                 // 蛇身：从头的青色渐变到尾的深青
-                let t = Double(i) / Double(viewModel.snake.count)
+                let f = Double(i) / Double(n)
                 let color = Color(
-                    red: 0.18 + (0.42 - 0.18) * (1 - t),
-                    green: 0.82 + (0.62 - 0.82) * (1 - t),
-                    blue: 0.80 + (0.56 - 0.80) * (1 - t)
+                    red: 0.18 + (0.42 - 0.18) * (1 - f),
+                    green: 0.82 + (0.62 - 0.82) * (1 - f),
+                    blue: 0.80 + (0.56 - 0.80) * (1 - f)
                 )
                 context.fill(path, with: .color(color))
             }
         }
     }
 
-    private func drawEyes(context: GraphicsContext, head: GridPoint, cell: CGFloat, dir: Direction) {
-        let cx = CGFloat(head.x) * cell + cell / 2
-        let cy = CGFloat(head.y) * cell + cell / 2
+    private func drawParticles(context: GraphicsContext, cell: CGFloat) {
+        for p in viewModel.particles {
+            let cx = CGFloat(p.x) * cell
+            let cy = CGFloat(p.y) * cell
+            let r = CGFloat(p.size) * cell * 0.5
+            context.fill(
+                Path(ellipseIn: CGRect(x: cx - r, y: cy - r, width: r * 2, height: r * 2)),
+                with: .color(Color(hex: p.color).opacity(max(0, p.life)))
+            )
+        }
+    }
+
+    private func drawEyes(context: GraphicsContext, center: CGPoint, cell: CGFloat, dir: Direction) {
+        let cx = center.x
+        let cy = center.y
         let eyeR = cell * 0.07
         let offset = cell * 0.18
 
@@ -258,13 +379,7 @@ struct ContentView: View {
     @ViewBuilder private var overlayView: some View {
         switch viewModel.gameState {
         case .ready:
-            overlayPanel(
-                title: "贪食蛇",
-                titleGradient: [Color(hex: 0x64ffda), Color(hex: 0xffb86c)],
-                subtitle: "滑动屏幕控制方向\n吃掉食物，不要撞墙或自己",
-                buttonTitle: "开始游戏",
-                action: { viewModel.startGame() }
-            )
+            startPanel
         case .paused:
             overlayPanel(
                 title: "已暂停",
@@ -283,6 +398,100 @@ struct ContentView: View {
             )
         case .playing:
             EmptyView()
+        }
+    }
+
+    // MARK: - 开始界面（含难度选择 + 道具开关）
+
+    private var startPanel: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 20)
+                .fill(Color(hex: 0x0d1117).opacity(0.92))
+                .background(.ultraThinMaterial.opacity(0.3))
+
+            VStack(spacing: 18) {
+                Text("贪食蛇")
+                    .font(.system(size: 36, weight: .black, design: .rounded))
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [Color(hex: 0x64ffda), Color(hex: 0xffb86c)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+
+                Text("滑动屏幕控制方向 · 吃食物得分")
+                    .font(.system(size: 13))
+                    .foregroundColor(Color(hex: 0x8892b0))
+
+                // 难度选择
+                VStack(spacing: 8) {
+                    Text("难度")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(Color(hex: 0x8892b0))
+                    HStack(spacing: 10) {
+                        ForEach(Difficulty.allCases, id: \.self) { d in
+                            Button(action: { viewModel.setDifficulty(d) }) {
+                                VStack(spacing: 2) {
+                                    Text(d.title)
+                                        .font(.system(size: 15, weight: .bold))
+                                    Text(d.subtitle)
+                                        .font(.system(size: 10))
+                                        .foregroundColor(Color(hex: 0x636e8e))
+                                }
+                                .foregroundColor(viewModel.difficulty == d ? Color(hex: 0x0d1117) : Color(hex: 0x64ffda))
+                                .frame(width: 84, height: 50)
+                                .background(
+                                    Capsule()
+                                        .fill(viewModel.difficulty == d
+                                              ? Color(hex: 0x64ffda)
+                                              : Color(hex: 0x64ffda).opacity(0.08))
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // 道具模式开关
+                HStack(spacing: 10) {
+                    Text("道具模式")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(Color(hex: 0x8892b0))
+                    Button(action: { viewModel.setPowerUpMode(!viewModel.powerUpMode) }) {
+                        Text(viewModel.powerUpMode ? "开" : "关")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundColor(viewModel.powerUpMode ? Color(hex: 0x0d1117) : Color(hex: 0xffb86c))
+                            .frame(width: 56, height: 34)
+                            .background(
+                                Capsule()
+                                    .fill(viewModel.powerUpMode
+                                          ? Color(hex: 0x64ffda)
+                                          : Color(hex: 0xffb86c).opacity(0.15))
+                            )
+                    }
+                }
+
+                Button(action: { viewModel.startGame() }) {
+                    Text("开始游戏")
+                        .font(.system(size: 18, weight: .bold, design: .rounded))
+                        .foregroundColor(Color(hex: 0x0d1117))
+                        .padding(.horizontal, 40)
+                        .padding(.vertical, 14)
+                        .background(
+                            Capsule()
+                                .fill(
+                                    LinearGradient(
+                                        colors: [Color(hex: 0x64ffda), Color(hex: 0x48d1cc)],
+                                        startPoint: .leading,
+                                        endPoint: .trailing
+                                    )
+                                )
+                        )
+                        .shadow(color: Color(hex: 0x64ffda).opacity(0.3), radius: 10)
+                }
+                .padding(.top, 6)
+            }
+            .padding(24)
         }
     }
 

@@ -2,7 +2,7 @@
   "name": "贪食蛇 Snake",
   "short_name": "贪食蛇",
   "description": "iOS 风格贪食蛇小游戏，滑动转向，免签名安装。",
-  "start_url": ".",
+  "start_url": "preview.html",
   "scope": ".",
   "display": "standalone",
   "orientation": "portrait",

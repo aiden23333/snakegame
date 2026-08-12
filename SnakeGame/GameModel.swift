@@ -47,6 +47,93 @@ enum GameState {
     case gameOver   // 结束
 }
 
+// MARK: - Difficulty
+
+/// 难度：简单（穿墙）/ 普通（撞墙即死）/ 困难（撞墙 + 内部障碍）
+enum Difficulty: Int, CaseIterable {
+    case easy, normal, hard
+
+    var title: String {
+        switch self {
+        case .easy:   return "简单"
+        case .normal: return "普通"
+        case .hard:   return "困难"
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .easy:   return "穿墙模式"
+        case .normal: return "撞墙即死"
+        case .hard:   return "墙 + 障碍"
+        }
+    }
+}
+
+// MARK: - Speed State（用于 UI 状态徽标）
+
+enum SpeedState {
+    case normal, fast, slow
+}
+
+// MARK: - PowerUp Type
+
+/// 道具类型
+enum PowerUpType: CaseIterable {
+    case gold    // 金苹果：大量加分
+    case fire    // 加速
+    case turtle  // 减速
+    case ghost   // 幽灵：短暂可穿身
+
+    var emoji: String {
+        switch self {
+        case .gold:   return "🍎"
+        case .fire:   return "🔥"
+        case .turtle: return "🐢"
+        case .ghost:  return "👻"
+        }
+    }
+
+    /// 用于发光与粒子着色的颜色
+    var color: UInt32 {
+        switch self {
+        case .gold:   return 0xffd700
+        case .fire:   return 0xff6b35
+        case .turtle: return 0x4ade80
+        case .ghost:  return 0xa78bfa
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .gold:   return "金苹果 +50"
+        case .fire:   return "加速"
+        case .turtle: return "减速"
+        case .ghost:  return "幽灵穿身"
+        }
+    }
+}
+
+/// 棋盘上当前存在的道具（同一时刻最多一个）
+struct PowerUp {
+    var type: PowerUpType
+    var position: GridPoint
+}
+
+// MARK: - Particle
+
+/// 吃食物 / 触发道具时的小粒子（坐标为「格」单位，绘制时乘以 cell）
+struct Particle {
+    var x: Double
+    var y: Double
+    var vx: Double
+    var vy: Double
+    var life: Double      // 1.0 -> 0.0
+    var decay: Double     // 每个 tick 衰减量
+    var color: UInt32
+    var size: Double      // 格单位
+}
+
 // MARK: - Grid Point
 
 /// 网格坐标（整数坐标）

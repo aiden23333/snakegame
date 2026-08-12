@@ -245,6 +245,98 @@
             justify-content: center;
             cursor: pointer;
         }
+
+        /* Difficulty selector & power-up toggle */
+        .select-group {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 2px;
+        }
+
+        .select-label {
+            font-size: 12px;
+            color: #8892b0;
+            letter-spacing: 1px;
+        }
+
+        .seg {
+            display: flex;
+            gap: 8px;
+        }
+
+        .seg-btn {
+            background: rgba(100, 255, 218, 0.08);
+            border: 1px solid rgba(100, 255, 218, 0.15);
+            color: #64ffda;
+            border-radius: 22px;
+            padding: 6px 0;
+            width: 76px;
+            font-size: 14px;
+            font-weight: 700;
+            cursor: pointer;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            line-height: 1.3;
+            transition: background 0.15s, color 0.15s;
+        }
+
+        .seg-btn small {
+            font-size: 10px;
+            font-weight: 500;
+            color: #636e8e;
+        }
+
+        .seg-btn.active {
+            background: #64ffda;
+            color: #0d1117;
+            border-color: #64ffda;
+        }
+
+        .seg-btn.active small {
+            color: rgba(13, 17, 23, 0.7);
+        }
+
+        .toggle-btn {
+            background: rgba(100, 255, 218, 0.08);
+            border: 1px solid rgba(100, 255, 218, 0.15);
+            color: #64ffda;
+            border-radius: 22px;
+            padding: 6px 22px;
+            font-size: 14px;
+            font-weight: 700;
+            cursor: pointer;
+        }
+
+        .toggle-btn.active {
+            background: #64ffda;
+            color: #0d1117;
+            border-color: #64ffda;
+        }
+
+        /* In-game HUD: combo & effect badges */
+        .hud {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            right: 10px;
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+            pointer-events: none;
+            z-index: 5;
+        }
+
+        .badge {
+            font-size: 12px;
+            font-weight: 700;
+            padding: 3px 9px;
+            border-radius: 12px;
+            background: rgba(255, 184, 108, 0.18);
+            color: #ffb86c;
+        }
     </style>
 </head>
 <body>
@@ -264,12 +356,32 @@
     <div class="canvas-wrap" id="canvasWrap">
         <canvas id="game"></canvas>
 
+        <!-- In-game HUD: combo & active effects -->
+        <div class="hud" id="hud"></div>
+
         <!-- Start overlay -->
         <div class="overlay" id="startOverlay">
             <div class="overlay-title">贪食蛇</div>
             <div class="overlay-subtitle">
                 滑动屏幕控制方向<br>吃掉食物，不要撞墙或自己
             </div>
+
+            <!-- 难度选择 -->
+            <div class="select-group">
+                <div class="select-label">难度</div>
+                <div class="seg" id="difficultySeg">
+                    <button class="seg-btn" data-diff="easy">简单<small>穿墙</small></button>
+                    <button class="seg-btn active" data-diff="normal">普通<small>撞墙</small></button>
+                    <button class="seg-btn" data-diff="hard">困难<small>障碍</small></button>
+                </div>
+            </div>
+
+            <!-- 道具模式开关 -->
+            <div class="select-group">
+                <div class="select-label">道具模式</div>
+                <button class="toggle-btn active" id="powerToggle">开</button>
+            </div>
+
             <button class="play-btn" id="startBtn">开始游戏</button>
         </div>
 
@@ -340,6 +452,31 @@
         foodGlow: 'rgba(255, 107, 107, 0.3)',
     };
 
+    // 道具类型定义
+    const POWERUPS = {
+        gold:   { emoji: '🍎', color: '#ffd700' },
+        fire:   { emoji: '🔥', color: '#ff6b35' },
+        turtle: { emoji: '🐢', color: '#4ade80' },
+        ghost:  { emoji: '👻', color: '#a78bfa' },
+    };
+    const POWERUP_KEYS = Object.keys(POWERUPS);
+
+    // 新增状态：难度 / 道具模式 / 连击 / 障碍 / 道具 / 粒子 / 效果
+    let difficulty = 'normal';          // 'easy' 穿墙 | 'normal' 撞墙 | 'hard' 障碍
+    let powerUpMode = true;             // 是否开启道具
+    let combo = 0;
+    const COMBO_WINDOW = 2500;          // 连击有效窗口(ms)
+    let lastEatTime = 0;
+    let obstacles = [];
+    let powerUp = null;                 // { type, x, y }
+    let particles = [];
+    let speedBoostUntil = 0;
+    let slowUntil = 0;
+    let ghostUntil = 0;
+    let speedState = 'normal';          // 'normal' | 'fast' | 'slow'
+    let ghostActive = false;
+    let prevSnake = [];            // 上一 tick 蛇的位置（平滑插值用）
+
     // DOM elements
     const scoreEl = document.getElementById('score');
     const highScoreEl = document.getElementById('highScore');
@@ -352,6 +489,9 @@
     const pauseBtn = document.getElementById('pauseBtn');
     const resumeBtn = document.getElementById('resumeBtn');
     const canvasWrap = document.getElementById('canvasWrap');
+    const hudEl = document.getElementById('hud');
+    const difficultySeg = document.getElementById('difficultySeg');
+    const powerToggle = document.getElementById('powerToggle');
 
     highScoreEl.textContent = highScore;
 
@@ -376,14 +516,27 @@
             { x: mid - 2, y: mid },
             { x: mid - 3, y: mid },
         ];
+        prevSnake = snake.map(s => ({ x: s.x, y: s.y }));
         direction = { x: 1, y: 0 };
         nextDirection = { x: 1, y: 0 };
         score = 0;
         tickInterval = 130;
         gameOver = false;
         gamePaused = false;
+        // 重置新状态
+        combo = 0;
+        lastEatTime = 0;
+        powerUp = null;
+        particles = [];
+        speedBoostUntil = 0;
+        slowUntil = 0;
+        ghostUntil = 0;
+        speedState = 'normal';
+        ghostActive = false;
+        obstacles = (difficulty === 'hard') ? generateObstacles() : [];
         placeFood();
         updateScore();
+        updateHud();
     }
 
     function placeFood() {
@@ -391,7 +544,9 @@
         while (!valid) {
             food.x = Math.floor(Math.random() * GRID_SIZE);
             food.y = Math.floor(Math.random() * GRID_SIZE);
-            valid = !snake.some(s => s.x === food.x && s.y === food.y);
+            valid = !snake.some(s => s.x === food.x && s.y === food.y)
+                 && !obstacles.some(o => o.x === food.x && o.y === food.y)
+                 && !(powerUp && powerUp.x === food.x && powerUp.y === food.y);
         }
     }
 
@@ -413,46 +568,103 @@
             return;
         }
 
-        if (timestamp - lastTickTime >= tickInterval) {
+        const interval = effectiveInterval();
+        if (timestamp - lastTickTime >= interval) {
             tick();
             lastTickTime = timestamp;
         }
 
+        updateParticles(timestamp);
+        updateHud();
         draw();
         animationId = requestAnimationFrame(gameLoop);
     }
 
+    // 依据基础速度与加速/减速效果计算实际间隔
+    function effectiveInterval() {
+        let i = tickInterval;
+        const now = performance.now();
+        if (now < speedBoostUntil) i *= 0.6;
+        if (now < slowUntil) i *= 1.5;
+        return Math.max(50, i);
+    }
+
     function tick() {
+        const now = performance.now();
+
+        // 效果到期处理
+        if (now >= speedBoostUntil && speedState === 'fast') speedState = 'normal';
+        if (now >= slowUntil && speedState === 'slow') speedState = 'normal';
+        if (now >= ghostUntil) ghostActive = false;
+
+        // 连击窗口过期则清零
+        if (combo > 0 && now - lastEatTime > COMBO_WINDOW) combo = 0;
+
         direction = { ...nextDirection };
 
         const head = snake[0];
-        const newHead = {
+        let newHead = {
             x: head.x + direction.x,
             y: head.y + direction.y,
         };
 
-        // Wall collision
-        if (newHead.x < 0 || newHead.x >= GRID_SIZE ||
-            newHead.y < 0 || newHead.y >= GRID_SIZE) {
+        // 墙壁：简单模式穿墙，其余模式撞墙即死
+        if (difficulty === 'easy') {
+            if (newHead.x < 0) newHead.x = GRID_SIZE - 1;
+            else if (newHead.x >= GRID_SIZE) newHead.x = 0;
+            if (newHead.y < 0) newHead.y = GRID_SIZE - 1;
+            else if (newHead.y >= GRID_SIZE) newHead.y = 0;
+        } else {
+            if (newHead.x < 0 || newHead.x >= GRID_SIZE ||
+                newHead.y < 0 || newHead.y >= GRID_SIZE) {
+                endGame();
+                return;
+            }
+        }
+
+        // 障碍（困难模式）：撞到即死（幽灵也不能穿越）
+        if (obstacles.some(o => o.x === newHead.x && o.y === newHead.y)) {
             endGame();
             return;
         }
 
-        // Self collision
-        if (snake.some(s => s.x === newHead.x && s.y === newHead.y)) {
-            endGame();
-            return;
+        // 撞自己（幽灵生效时忽略）
+        if (!ghostActive) {
+            if (snake.some(s => s.x === newHead.x && s.y === newHead.y)) {
+                endGame();
+                return;
+            }
         }
 
+        prevSnake = snake.map(s => ({ x: s.x, y: s.y }));
         snake.unshift(newHead);
 
-        // Eat food
+        // 吃到道具
+        if (powerUp && powerUp.x === newHead.x && powerUp.y === newHead.y) {
+            applyPowerUp(powerUp.type, newHead);
+            powerUp = null;
+            snake.pop();
+            return;
+        }
+
+        // 吃食物
         if (newHead.x === food.x && newHead.y === food.y) {
-            score += 10;
+            // 连击：窗口内连续吃累计
+            if (lastEatTime > 0 && now - lastEatTime <= COMBO_WINDOW) combo += 1;
+            else combo = 1;
+            lastEatTime = now;
+
+            score += 10 * combo;
             updateScore();
-            // Speed up slightly
+            spawnParticles(newHead.x, newHead.y, '#64ffda', 6);
+            // 加速：最低 65ms
             tickInterval = Math.max(65, tickInterval - 2.5);
             placeFood();
+
+            // 道具模式下，按概率刷新一个道具
+            if (powerUpMode && !powerUp && snake.length < GRID_SIZE * GRID_SIZE - 6) {
+                if (Math.random() < 0.28) spawnPowerUp();
+            }
         } else {
             snake.pop();
         }
@@ -464,6 +676,103 @@
         finalScoreEl.textContent = score;
         gameOverOverlay.classList.remove('hidden');
         pauseBtn.style.visibility = 'hidden';
+    }
+
+    // ---- Power-ups & particles ----
+
+    function spawnPowerUp() {
+        let pos, tries = 0;
+        do {
+            pos = {
+                x: Math.floor(Math.random() * GRID_SIZE),
+                y: Math.floor(Math.random() * GRID_SIZE),
+            };
+            tries++;
+        } while (
+            (snake.some(s => s.x === pos.x && s.y === pos.y) ||
+             (pos.x === food.x && pos.y === food.y) ||
+             obstacles.some(o => o.x === pos.x && o.y === pos.y)) &&
+            tries < 100
+        );
+        const type = POWERUP_KEYS[Math.floor(Math.random() * POWERUP_KEYS.length)];
+        powerUp = { type, x: pos.x, y: pos.y };
+    }
+
+    function applyPowerUp(type, point) {
+        const now = performance.now();
+        const cfg = POWERUPS[type];
+        if (type === 'gold') {
+            score += 50;
+            updateScore();
+            spawnParticles(point.x, point.y, cfg.color, 12);
+        } else if (type === 'fire') {
+            speedBoostUntil = now + 4000;
+            speedState = 'fast';
+            spawnParticles(snake[0].x, snake[0].y, cfg.color, 8);
+        } else if (type === 'turtle') {
+            slowUntil = now + 4000;
+            speedState = 'slow';
+            spawnParticles(snake[0].x, snake[0].y, cfg.color, 8);
+        } else if (type === 'ghost') {
+            ghostUntil = now + 4000;
+            ghostActive = true;
+            spawnParticles(snake[0].x, snake[0].y, cfg.color, 8);
+        }
+    }
+
+    function generateObstacles() {
+        const mid = Math.floor(GRID_SIZE / 2);
+        const result = [];
+        let tries = 0;
+        while (result.length < 8 && tries < 300) {
+            tries++;
+            const p = {
+                x: 1 + Math.floor(Math.random() * (GRID_SIZE - 2)),
+                y: 1 + Math.floor(Math.random() * (GRID_SIZE - 2)),
+            };
+            // 保留中心 5×5 安全区，避免一出生就被堵
+            if (Math.abs(p.x - mid) <= 2 && Math.abs(p.y - mid) <= 2) continue;
+            if (result.some(o => o.x === p.x && o.y === p.y)) continue;
+            result.push(p);
+        }
+        return result;
+    }
+
+    function spawnParticles(cx, cy, color, count) {
+        for (let i = 0; i < count; i++) {
+            const angle = Math.random() * Math.PI * 2;
+            const speed = 0.02 + Math.random() * 0.06;
+            particles.push({
+                x: cx + 0.5, y: cy + 0.5,
+                vx: Math.cos(angle) * speed,
+                vy: Math.sin(angle) * speed,
+                life: 1,
+                decay: 1.6 + Math.random(),
+                color,
+                size: 0.08 + Math.random() * 0.08,
+            });
+        }
+        if (particles.length > 140) particles.splice(0, particles.length - 140);
+    }
+
+    function updateParticles(timestamp) {
+        const dt = 16; // 近似每帧
+        for (const p of particles) {
+            p.x += p.vx * (dt / 130);
+            p.y += p.vy * (dt / 130);
+            p.life -= p.decay * (dt / 1000);
+        }
+        particles = particles.filter(p => p.life > 0);
+    }
+
+    function updateHud() {
+        if (!gameRunning || gameOver) { hudEl.innerHTML = ''; return; }
+        let html = '';
+        if (combo >= 2) html += `<span class="badge" style="background:rgba(255,184,108,0.18);color:#ffb86c">连击 x${combo}</span>`;
+        if (speedState === 'fast') html += `<span class="badge" style="background:rgba(255,107,53,0.18);color:#ff6b35">🔥 加速</span>`;
+        if (speedState === 'slow') html += `<span class="badge" style="background:rgba(74,222,128,0.18);color:#4ade80">🐢 减速</span>`;
+        if (ghostActive) html += `<span class="badge" style="background:rgba(167,139,250,0.18);color:#a78bfa">👻 幽灵</span>`;
+        hudEl.innerHTML = html;
     }
 
     // ---- Rendering ----
@@ -489,6 +798,35 @@
             ctx.stroke();
         }
 
+        // 障碍（困难模式）
+        for (const o of obstacles) {
+            const ox = o.x * cellSize + cellSize * 0.06;
+            const oy = o.y * cellSize + cellSize * 0.06;
+            roundRect(ctx, ox, oy, cellSize * 0.88, cellSize * 0.88, cellSize * 0.2);
+            ctx.fillStyle = '#2b2f44';
+            ctx.fill();
+        }
+
+        // 道具
+        if (powerUp) {
+            const cx = powerUp.x * cellSize + cellSize / 2;
+            const cy = powerUp.y * cellSize + cellSize / 2;
+            const cfg = POWERUPS[powerUp.type];
+            const pglow = ctx.createRadialGradient(cx, cy, 0, cx, cy, cellSize * 1.2);
+            pglow.addColorStop(0, hexToRgba(cfg.color, 0.35));
+            pglow.addColorStop(1, hexToRgba(cfg.color, 0));
+            ctx.fillStyle = pglow;
+            ctx.fillRect(cx - cellSize * 1.2, cy - cellSize * 1.2, cellSize * 2.4, cellSize * 2.4);
+            ctx.fillStyle = cfg.color;
+            ctx.beginPath();
+            ctx.arc(cx, cy, cellSize * 0.36, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.font = (cellSize * 0.5) + 'px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(cfg.emoji, cx, cy + cellSize * 0.02);
+        }
+
         // Food (pulsing glow)
         const pulse = Math.sin(Date.now() / 200) * 0.15 + 0.85;
         const fx = food.x * cellSize + cellSize / 2;
@@ -508,13 +846,26 @@
         ctx.arc(fx, fy, fr, 0, Math.PI * 2);
         ctx.fill();
 
-        // Snake
+        // Snake（平滑插值：两次 tick 之间滑动，不再一格一顿）
+        const moveT = (gameRunning && !gamePaused && !gameOver)
+            ? Math.min(1, Math.max(0, (performance.now() - lastTickTime) / effectiveInterval()))
+            : 1;
+        const ix = [], iy = [];
+        for (let i = 0; i < snake.length; i++) {
+            const cur = snake[i];
+            const prev = (i < prevSnake.length) ? prevSnake[i] : cur;
+            let dx = cur.x - prev.x;
+            let dy = cur.y - prev.y;
+            if (Math.abs(dx) > 1) dx = 0; // 穿墙瞬间吸附，避免跨屏滑动
+            if (Math.abs(dy) > 1) dy = 0;
+            ix[i] = (prev.x + dx * moveT) * cellSize;
+            iy[i] = (prev.y + dy * moveT) * cellSize;
+        }
+        const pad = cellSize * 0.08;
+        const radius = cellSize * 0.25;
         for (let i = snake.length - 1; i >= 0; i--) {
-            const seg = snake[i];
-            const sx = seg.x * cellSize;
-            const sy = seg.y * cellSize;
-            const pad = cellSize * 0.08;
-            const radius = cellSize * 0.25;
+            const sx = ix[i];
+            const sy = iy[i];
 
             if (i === 0) {
                 // Head
@@ -526,19 +877,21 @@
                 ctx.fillStyle = '#0d1117';
                 const eyeOffset = cellSize * 0.18;
                 const eyeR = cellSize * 0.07;
+                const cx = sx + cellSize / 2;
+                const cy = sy + cellSize / 2;
                 let e1x, e1y, e2x, e2y;
                 if (direction.x === 1) {
-                    e1x = sx + cellSize * 0.65; e1y = sy + cellSize * 0.35;
-                    e2x = sx + cellSize * 0.65; e2y = sy + cellSize * 0.65;
+                    e1x = cx + eyeOffset; e1y = cy - eyeOffset;
+                    e2x = cx + eyeOffset; e2y = cy + eyeOffset;
                 } else if (direction.x === -1) {
-                    e1x = sx + cellSize * 0.35; e1y = sy + cellSize * 0.35;
-                    e2x = sx + cellSize * 0.35; e2y = sy + cellSize * 0.65;
+                    e1x = cx - eyeOffset; e1y = cy - eyeOffset;
+                    e2x = cx - eyeOffset; e2y = cy + eyeOffset;
                 } else if (direction.y === 1) {
-                    e1x = sx + cellSize * 0.35; e1y = sy + cellSize * 0.65;
-                    e2x = sx + cellSize * 0.65; e2y = sy + cellSize * 0.65;
+                    e1x = cx - eyeOffset; e1y = cy + eyeOffset;
+                    e2x = cx + eyeOffset; e2y = cy + eyeOffset;
                 } else {
-                    e1x = sx + cellSize * 0.35; e1y = sy + cellSize * 0.35;
-                    e2x = sx + cellSize * 0.65; e2y = sy + cellSize * 0.35;
+                    e1x = cx - eyeOffset; e1y = cy - eyeOffset;
+                    e2x = cx + eyeOffset; e2y = cy - eyeOffset;
                 }
                 ctx.beginPath();
                 ctx.arc(e1x, e1y, eyeR, 0, Math.PI * 2);
@@ -547,14 +900,27 @@
             } else {
                 // Body - gradient color from head to tail
                 const t = i / snake.length;
-                const r = Math.round(72 + (100 - 72) * (1 - t));
-                const g = Math.round(209 + (255 - 209) * (1 - t));
-                const b = Math.round(204 + (218 - 204) * (1 - t));
                 ctx.fillStyle = `rgb(${Math.round(72 * t + 42 * (1 - t))}, ${Math.round(157 * t + 209 * (1 - t))}, ${Math.round(143 * t + 204 * (1 - t))})`;
                 roundRect(ctx, sx + pad, sy + pad, cellSize - pad * 2, cellSize - pad * 2, radius);
                 ctx.fill();
             }
         }
+
+        // 粒子（吃食物 / 触发道具时的小迸溅）
+        for (const p of particles) {
+            ctx.globalAlpha = Math.max(0, p.life);
+            ctx.fillStyle = p.color;
+            ctx.beginPath();
+            ctx.arc(p.x * cellSize, p.y * cellSize, p.size * cellSize * 0.5, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+    }
+
+    function hexToRgba(hex, a) {
+        const n = parseInt(hex.slice(1), 16);
+        const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+        return `rgba(${r}, ${g}, ${b}, ${a})`;
     }
 
     function roundRect(ctx, x, y, w, h, r) {
@@ -647,6 +1013,22 @@
                 case 'right': setDirection(1, 0); break;
             }
         });
+    });
+
+    // 难度选择
+    difficultySeg.querySelectorAll('.seg-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            difficulty = this.dataset.diff;
+            difficultySeg.querySelectorAll('.seg-btn').forEach(b => b.classList.remove('active'));
+            this.classList.add('active');
+        });
+    });
+
+    // 道具模式开关
+    powerToggle.addEventListener('click', function() {
+        powerUpMode = !powerUpMode;
+        powerToggle.classList.toggle('active', powerUpMode);
+        powerToggle.textContent = powerUpMode ? '开' : '关';
     });
 
     // ---- Game control ----
