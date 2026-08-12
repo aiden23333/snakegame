@@ -63,6 +63,7 @@ open SnakeGame.xcodeproj
 | 最高分 | 使用 UserDefaults 持久化保存最高分 |
 | 暂停/继续 | 右上角暂停按钮，支持随时暂停 |
 | 视觉效果 | 蛇头蛇身渐变配色、食物发光脉冲、蛇头眼睛跟随方向 |
+| **丝滑移动** | 子格子插值渲染：两次 tick 之间平滑滑动，不再一格一顿（HTML 用插值系数；iOS 用 TimelineView + Canvas 插值） |
 | 状态管理 | ready → playing → paused / gameOver 完整状态机 |
 
 ## 技术规格
