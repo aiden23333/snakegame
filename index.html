@@ -237,6 +237,58 @@
             background: rgba(100, 255, 218, 0.2);
         }
 
+        /* 底部 360° 摇杆（不遮挡主画面，位于画布下方独立区域） */
+        .joystick-zone {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin-top: 2px;
+            padding: 4px 0 16px;
+            touch-action: none;
+        }
+
+        .joystick {
+            position: relative;
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            background: radial-gradient(circle at 50% 45%, rgba(100, 255, 218, 0.12), rgba(100, 255, 218, 0.03));
+            border: 1px solid rgba(100, 255, 218, 0.25);
+            box-shadow: inset 0 0 26px rgba(0, 0, 0, 0.45);
+            touch-action: none;
+        }
+
+        /* 中心十字参考线 */
+        .joystick::before,
+        .joystick::after {
+            content: "";
+            position: absolute;
+            background: rgba(100, 255, 218, 0.12);
+        }
+        .joystick::before {
+            left: 50%; top: 14%; bottom: 14%;
+            width: 1px; transform: translateX(-0.5px);
+        }
+        .joystick::after {
+            top: 50%; left: 14%; right: 14%;
+            height: 1px; transform: translateY(-0.5px);
+        }
+
+        .joystick-knob {
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            width: 52px;
+            height: 52px;
+            margin-left: -26px;
+            margin-top: -26px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #64ffda, #48d1cc);
+            box-shadow: 0 6px 18px rgba(100, 255, 218, 0.45);
+            will-change: transform;
+            transition: transform 0.04s linear;
+        }
+
         @media (hover: none) and (pointer: coarse) {
             .dpad { display: none; }
         }
@@ -415,21 +467,11 @@
         </div>
     </div>
 
-    <div class="dpad">
-        <div class="dpad-row">
-            <button class="dpad-btn" data-dir="up">▲</button>
+    <div class="joystick-zone">
+        <div class="joystick" id="joystick">
+            <div class="joystick-knob" id="joystickKnob"></div>
         </div>
-        <div class="dpad-row">
-            <button class="dpad-btn" data-dir="left">◀</button>
-            <button class="dpad-btn" data-dir="down">▼</button>
-            <button class="dpad-btn" data-dir="right">▶</button>
-        </div>
-    </div>
-
-    <div class="controls-hint">
-        <p class="hint-text">
-            <span class="hint-icon">👆</span>上下左右滑动屏幕<span class="hint-icon">👆</span>
-        </p>
+        <p class="hint-text">拖动摇杆 360° 控制方向 · 也可滑动屏幕</p>
     </div>
 
 <script>
@@ -979,15 +1021,24 @@
 
     // ---- Input: Swipe（屏幕任意位置均可滑动转向）----
     let touchStartX = 0, touchStartY = 0;
+    // 若触摸起始于摇杆区域，则跳过全局滑动转向，避免双重控制
+    let touchInJoystick = false;
 
     function onTouchStart(e) {
+        touchInJoystick = !!(e.target.closest && e.target.closest('.joystick'));
+        if (touchInJoystick) return;
         if (!gameRunning || gamePaused || gameOver) return;
         const t = e.touches[0];
         touchStartX = t.clientX;
         touchStartY = t.clientY;
     }
 
+    function onTouchEnd() {
+        touchInJoystick = false;
+    }
+
     function onTouchMove(e) {
+        if (touchInJoystick) return;
         if (!gameRunning || gamePaused || gameOver) return;
         const t = e.touches[0];
         const dx = t.clientX - touchStartX;
@@ -1015,6 +1066,7 @@
     // 在整屏（document）监听触摸，任意位置滑动都能转向
     document.addEventListener('touchstart', onTouchStart, { passive: true });
     document.addEventListener('touchmove', onTouchMove, { passive: true });
+    document.addEventListener('touchend', onTouchEnd, { passive: true });
 
     // Keyboard
     document.addEventListener('keydown', function(e) {
@@ -1041,6 +1093,65 @@
         }
         nextDirection = { x, y };
     }
+
+    // ---- 底部 360° 摇杆（拖动旋钮 → 按主轴向映射为上下左右）----
+    const joystick = document.getElementById('joystick');
+    const joyKnob = document.getElementById('joystickKnob');
+    let joyActive = false;
+    const JOY_DEAD = 16; // 中心死区半径(px)
+
+    function joyUpdate(clientX, clientY) {
+        const rect = joystick.getBoundingClientRect();
+        const cx = rect.left + rect.width / 2;
+        const cy = rect.top + rect.height / 2;
+        let dx = clientX - cx;
+        let dy = clientY - cy;
+        const maxOff = rect.width / 2 - 26; // 旋钮半径 26
+        const dist = Math.hypot(dx, dy);
+        if (dist > maxOff && dist > 0) {
+            dx = dx / dist * maxOff;
+            dy = dy / dist * maxOff;
+        }
+        joyKnob.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
+        // 死区内不改变方向（保持当前方向）
+        if (dist < JOY_DEAD) return;
+        // 按主轴向映射为 4 方向
+        let nx = 0, ny = 0;
+        if (Math.abs(dx) >= Math.abs(dy)) {
+            nx = dx > 0 ? 1 : -1;
+        } else {
+            ny = dy > 0 ? 1 : -1;
+        }
+        if (nx !== 0 || ny !== 0) setDirection(nx, ny);
+    }
+
+    function joyEnd() {
+        joyActive = false;
+        joyKnob.style.transform = 'translate(0px,0px)';
+    }
+
+    joystick.addEventListener('pointerdown', function(e) {
+        joyActive = true;
+        if (joystick.setPointerCapture) {
+            try { joystick.setPointerCapture(e.pointerId); } catch (_) {}
+        }
+        joyUpdate(e.clientX, e.clientY);
+        e.preventDefault();
+        e.stopPropagation();
+    });
+    joystick.addEventListener('pointermove', function(e) {
+        if (!joyActive) return;
+        joyUpdate(e.clientX, e.clientY);
+        e.preventDefault();
+        e.stopPropagation();
+    });
+    joystick.addEventListener('pointerup', function(e) {
+        joyEnd();
+        e.stopPropagation();
+    });
+    joystick.addEventListener('pointercancel', function() { joyEnd(); });
+    // 指针离开（如移到元素外未收到 up）也复位
+    joystick.addEventListener('pointerleave', function() { if (joyActive) joyEnd(); });
 
     // D-pad buttons
     document.querySelectorAll('.dpad-btn').forEach(btn => {

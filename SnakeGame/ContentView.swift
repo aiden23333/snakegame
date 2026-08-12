@@ -9,6 +9,11 @@ struct ContentView: View {
     // 滑动手势记录的起点
     @State private var dragStart: CGPoint?
 
+    // 底部摇杆旋钮的偏移量
+    @State private var joyOffset: CGSize = .zero
+    private let joyBaseSize: CGFloat = 120
+    private let joyKnobSize: CGFloat = 48
+
     var body: some View {
         ZStack {
             // 背景渐变
@@ -28,6 +33,9 @@ struct ContentView: View {
 
                 // 游戏画板
                 gameBoard
+
+                // 底部 360° 摇杆（位于画板下方，不遮挡主画面）
+                joystick
 
                 // 底部提示
                 controlHint
@@ -567,10 +575,93 @@ struct ContentView: View {
     // MARK: - 底部提示
 
     private var controlHint: some View {
-        Text("👆 上下左右滑动屏幕 👆")
+        Text("拖动摇杆 360° 控制方向 · 也可滑动屏幕")
             .font(.system(size: 13))
             .foregroundColor(Color(hex: 0x636e8e))
     }
+
+    // MARK: - 底部 360° 摇杆
+
+    private var joystick: some View {
+        ZStack {
+            // 底座
+            Circle()
+                .fill(
+                    RadialGradient(
+                        colors: [
+                            Color(hex: 0x64ffda).opacity(0.12),
+                            Color(hex: 0x64ffda).opacity(0.03),
+                        ],
+                        center: .center,
+                        startRadius: 0,
+                        endRadius: joyBaseSize / 2
+                    )
+                )
+                .frame(width: joyBaseSize, height: joyBaseSize)
+                .overlay(
+                    Circle()
+                        .stroke(Color(hex: 0x64ffda).opacity(0.25), lineWidth: 1)
+                )
+
+            // 中心十字参考线
+            VStack(spacing: 0) {
+                Spacer()
+                Rectangle()
+                    .fill(Color(hex: 0x64ffda).opacity(0.12))
+                    .frame(width: 1, height: joyBaseSize * 0.72)
+                Spacer()
+            }
+            HStack(spacing: 0) {
+                Spacer()
+                Rectangle()
+                    .fill(Color(hex: 0x64ffda).opacity(0.12))
+                    .frame(width: joyBaseSize * 0.72, height: 1)
+                Spacer()
+            }
+
+            // 旋钮（随拖动偏移）
+            Circle()
+                .fill(
+                    LinearGradient(
+                        colors: [Color(hex: 0x64ffda), Color(hex: 0x48d1cc)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+                .frame(width: joyKnobSize, height: joyKnobSize)
+                .shadow(color: Color(hex: 0x64ffda).opacity(0.4), radius: 8)
+                .offset(joyOffset)
+        }
+        .frame(width: joyBaseSize, height: joyBaseSize)
+        .contentShape(Circle())
+        .highPriorityGesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { value in
+                    let center = CGPoint(x: joyBaseSize / 2, y: joyBaseSize / 2)
+                    var dx = value.location.x - center.x
+                    var dy = value.location.y - center.y
+                    let dist = hypot(dx, dy)
+                    let maxOff = joyBaseSize / 2 - joyKnobSize / 2
+                    if dist > maxOff && dist > 0 {
+                        dx = dx / dist * maxOff
+                        dy = dy / dist * maxOff
+                    }
+                    joyOffset = CGSize(width: dx, height: dy)
+                    // 中心死区：保持当前方向
+                    guard dist > 14 else { return }
+                    // 按主轴向映射为 4 方向
+                    if abs(dx) >= abs(dy) {
+                        viewModel.changeDirection(dx > 0 ? .right : .left)
+                    } else {
+                        viewModel.changeDirection(dy > 0 ? .down : .up)
+                    }
+                }
+                .onEnded { _ in
+                    joyOffset = .zero
+                }
+        )
+    }
+
 }
 
 // MARK: - Color Hex 扩展
